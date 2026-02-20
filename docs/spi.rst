@@ -62,28 +62,67 @@ being performed.  For example, a game could send a full screen update out over S
 processing the next frame without waiting for the first one to be sent.  DMA is used to handle
 the transfer to/from the hardware freeing the CPU from bit-banging or busy waiting.
 
-Note that asynchronous operations can not be intersped with normal, synchronous ones.  ``transferAsync``
+Note that asynchronous operations can not be interspersed with normal, synchronous ones.  ``transferAsync``
 should still occur after a ``beginTransaction()`` and when ``finishedAsync()`` returns ``true`` then
 ``endTransaction()`` should also be called.
 
 All buffers need to be valid throughout the entire operation.  Read data cannot be accessed until
 the transaction is completed and can't be "peeked" at while the operation is ongoing.
 
+Asynchronous operations are only available on hardware SPI (``SPI`` and ``SPI1``), not ``SoftwareSPI``.
+
 bool transferAsync(const void \*send, void \*recv, size_t bytes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Begins an SPI asynchronous transaction.  Either ``send`` or ``recv`` can be ``nullptr`` if data only needs
 to be transferred in one direction.
-Check ``finishedAsync()`` to determine when the operation completes and conclude the transaction.
+Check ``finishedAsync()`` or use ``onTransferComplete()`` to determine when the operation completes.
 This operation needs to allocate a buffer from heap equal to ``bytes`` in size if ``LSBMODE`` is used.
 
 bool finishedAsync()
 ~~~~~~~~~~~~~~~~~~~~
-Call to check if the asynchronous operations is completed and the buffer passed in can be either read or
-reused.  Frees the allocated memory and completes the asynchronous transaction.
+Returns ``true`` if the asynchronous operation has completed and the buffers can be read or reused.
 
 void abortAsync()
 ~~~~~~~~~~~~~~~~~
-Cancels the outstanding asynchronous transaction and frees any allocated memory.
+Cancels the outstanding asynchronous transaction.  The completion callback will not be called.
+
+void onTransferComplete(void (\*callback)(void))
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Registers a callback function to be called when an asynchronous transfer completes.  This allows
+applications to avoid polling ``finishedAsync()`` in a loop.  The callback executes in interrupt
+context, so it should be kept short and fast with no memory allocations or blocking operations.
+
+.. code:: cpp
+
+    volatile bool transferDone = false;
+
+    void myCallback() {
+        transferDone = true;
+    }
+
+    void setup() {
+        SPI.begin();
+        SPI.onTransferComplete(myCallback);
+    }
+
+    void loop() {
+        SPI.beginTransaction(settings);
+        transferDone = false;
+        SPI.transferAsync(txBuf, rxBuf, length);
+
+        while (!transferDone) {
+            // Do other work while transfer is in progress
+        }
+
+        SPI.endTransaction();
+    }
+
+Pass ``nullptr`` to disable the callback.
+
+void onTransferComplete(void (\*callback)(void \*), void \*context)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Registers a callback with a user-provided context pointer.  The context pointer will be passed
+to the callback function when it is invoked.
 
 
 Examples
